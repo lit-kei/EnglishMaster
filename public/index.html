@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="分野と難易度を選んで、AIが作る英文の和訳に挑戦。丁寧なフィードバックで、一文ずつ英語を自分の力に。">
+  <title>English Master — 一文から、英語がわかる。</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+<header class="header"><a class="brand" href="./"><span class="brand-icon" aria-hidden="true">E<span>m</span></span><span>English Master<small>一文から、英語がわかる。</small></span></a><span class="header-note">YOUR DAILY ENGLISH PRACTICE</span><button class="text-button" id="help-button" type="button">使い方 <span aria-hidden="true">↗</span></button></header>
+<main>
+  <section class="intro"><div><p class="eyebrow"><span></span> READ. THINK. UNDERSTAND.</p><h1>一文ずつ、<br class="mobile-break">英語を自分の力に。</h1><p class="intro-copy">あなたに合った英文を、AIが出題。<br>訳して、気づいて、少しずつ読めるようになる。</p></div><div class="intro-art" aria-hidden="true"><span class="art-line">A little practice,</span><span class="art-line second">a little progress.</span><span class="art-label">毎日の一文が、次の一歩に。</span><span class="art-star">✳</span></div></section>
+  <div class="workspace">
+    <aside class="settings card"><div class="section-title"><span class="step">01</span><h2>学習をカスタマイズ</h2></div><p class="muted small">今日、身につけたいことを選ぼう。</p>
+      <form id="settings-form">
+        <fieldset><legend>学ぶ分野</legend><div class="topic-grid" id="topics"></div></fieldset>
+        <label class="select-label" for="vocabulary">単語のレベル <span>VOCABULARY</span></label><select id="vocabulary" name="vocabulary"><option value="basic">中学レベル</option><option value="standard" selected>高校基礎</option><option value="advanced">大学受験</option></select>
+        <label class="select-label" for="syntax">構文のレベル <span>STRUCTURE</span></label><select id="syntax" name="syntax"><option value="basic">基礎 — まずは短い一文から</option><option value="standard" selected>標準 — 少し長い文に挑戦</option><option value="advanced">発展 — 複雑な構文を読み解く</option></select>
+        <button class="primary generate" type="submit" id="generate-button" disabled><span>英文を生成する</span><span aria-hidden="true">↗</span></button>
+      </form><div class="mode-box"><span class="mode-dot"></span><div><strong id="mode-label">接続を確認中…</strong><p id="mode-description">学習の準備をしています。</p><button class="text-button" id="login-button" type="button" hidden>利用パスワードを入力 →</button></div></div>
+    </aside>
+    <section class="practice card" aria-label="英文和訳の練習" id="practice">
+      <div class="practice-top"><div class="section-title"><span class="step">02</span><h2>英文を読み解こう</h2></div><span class="practice-label">TRANSLATION PRACTICE</span></div>
+      <div id="empty-state" class="empty-state"><div class="book-symbol" aria-hidden="true">Aa<span>文</span></div><p class="eyebrow">ONE SENTENCE, ONE STEP.</p><h3>今日の一文を、はじめよう。</h3><p>左の設定で分野とレベルを選び、<br>「英文を生成する」を押してください。</p><span class="empty-note">正解への近道は、まず自分で考えてみること。</span></div>
+      <div id="question-area" hidden>
+        <div class="question-meta" id="question-meta"></div><p id="sentence" class="sentence" lang="en"></p>
+        <button class="hint-button" type="button" id="hint-button" aria-expanded="false" aria-controls="hint">ヒントを見る <span aria-hidden="true">＋</span></button><p id="hint" class="hint" hidden></p>
+        <form id="answer-form"><div class="answer-label"><label for="answer">日本語に訳してみよう</label><span id="character-count">0 / 2000</span></div><textarea id="answer" name="answer" rows="5" maxlength="2000" placeholder="ここに、あなたの日本語訳を入力してください。" required></textarea><div class="answer-actions"><span class="muted small">自分の言葉で訳してみよう。</span><button type="submit" class="primary" id="grade-button">AIに採点してもらう <span aria-hidden="true">→</span></button></div></form>
+        <section id="result" class="result" aria-label="採点結果" hidden></section>
+      </div>
+      <div class="status" id="status" role="status" aria-live="polite" hidden></div><div class="error" id="error" role="alert" hidden></div>
+    </section>
+  </div>
+  <section class="learning-note"><span class="note-icon" aria-hidden="true">✧</span><p><strong>「なぜそう訳すのか」が、わかる。</strong>採点では、訳例だけでなく構文のポイントや改善点も確認できます。</p></section>
+  <section class="history-section" aria-label="学習記録"><div class="history-heading"><h2>これまでの一歩 <span id="history-count">0文</span></h2><button type="button" id="clear-history" class="text-button" hidden>履歴を消す</button></div><div id="history" class="history"><p class="muted small">採点した英文がここに残ります。学習記録はこのブラウザーに保存されます。</p></div></section>
+</main>
+<footer><a class="footer-brand" href="./">English Master<span>一文から、広がる世界。</span></a><p>AIの採点は学習の目安です。疑問が残るときは、解説を手がかりに確認しましょう。</p><a href="https://github.com/lit-kei/EnglishMaster" target="_blank" rel="noopener noreferrer">GitHub ↗</a></footer>
+<dialog id="help-dialog"><div class="dialog-heading"><h2>English Masterの使い方</h2><button type="button" class="close-button" id="close-help" aria-label="閉じる">×</button></div><ol><li>学ぶ分野・単語・構文のレベルを選び、英文を生成します。</li><li>英文を読んで、日本語訳を入力します。迷ったらヒントも使えます。</li><li>AIによる点数・訳例・構文解説を確認して、次の一文に進みましょう。</li></ol><p>80点以上は「よくできました」、50〜79点は「あと一歩」、49点以下は「復習しよう」。自然な言い換えも評価します。</p><p>サンプルモードでは固定の例文と解説を体験できます。AI生成・AI採点は行いません。</p><p class="muted small">AI利用時は英文と回答がOpenAIに送信されます。回答に個人情報を含めないでください。直近20件の学習記録はこの端末のブラウザーに保存されます。</p></dialog>
+<dialog id="login-dialog"><form id="login-form"><div class="dialog-heading"><h2>AI学習をはじめる</h2><button type="button" class="close-button" id="close-login" aria-label="閉じる">×</button></div><p>サイト管理者から共有された利用パスワードを入力してください。</p><label for="password">利用パスワード</label><input id="password" type="password" autocomplete="current-password" required maxlength="1000"><p id="login-error" class="error" role="alert" hidden></p><button class="primary" id="login-submit" type="submit">接続する →</button></form></dialog>
+</body></html>
