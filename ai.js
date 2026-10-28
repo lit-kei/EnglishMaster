@@ -1,4 +1,4 @@
-import { TOPICS, VOCAB, SYNTAX } from './public/shared.js';
+import { TOPICS, VOCAB, SYNTAX, DEFAULT_TEMPERATURE } from './public/shared.js';
 
 const string = { type: 'string' };
 const strings = { type: 'array', items: string };
@@ -27,7 +27,7 @@ export function aiConfig(env) {
   return { provider, apiKey, enabled: Boolean(apiKey), timeoutMs: 45_000,
     model: (provider === 'gemini' ? env.GEMINI_MODEL : env.OPENAI_MODEL)?.trim() || (provider === 'gemini' ? 'gemini-3.1-flash-lite' : 'gpt-4.1-mini') };
 }
-export async function structuredAI({ env, fetchImpl, instructions, input, schema, name }) {
+export async function structuredAI({ env, fetchImpl, instructions, input, schema, name, temperature = DEFAULT_TEMPERATURE }) {
   const { provider, apiKey, model, baseURL, timeoutMs } = aiConfig(env);
   const gemini = provider === 'gemini';
   const local = provider === 'ollama';
@@ -35,7 +35,7 @@ export async function structuredAI({ env, fetchImpl, instructions, input, schema
   const payload = local ? {
     model, messages: [{ role: 'system', content: `${instructions}\n指定されたJSONスキーマに沿うJSONだけを出力してください。` }, { role: 'user', content: JSON.stringify(input) }],
     stream: false, think: false, format: schema, keep_alive: '5m',
-    options: { num_ctx: 4096, num_predict: 2200, temperature: name === 'english_grade' ? 0 : 0.7 },
+    options: { num_ctx: 4096, num_predict: 2200, temperature: name === 'english_grade' ? 0 : temperature },
   } : gemini ? {
     systemInstruction: { parts: [{ text: instructions }] },
     contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],

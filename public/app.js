@@ -15,7 +15,7 @@ for (const [value, text] of Object.entries(TOPICS)) {
   label.append(input, span); $('topics').append(label);
 }
 function element(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
-function settings() { return { topic: document.querySelector('input[name="topic"]:checked').value, vocabulary: $('vocabulary').value, syntax: $('syntax').value }; }
+function settings() { return { topic: document.querySelector('input[name="topic"]:checked').value, vocabulary: $('vocabulary').value, syntax: $('syntax').value, temperature: Number($('temperature').value) }; }
 function showError(message) { $('error').textContent = message; $('error').hidden = false; }
 function setBusy(value, message = '') {
   busy = value;
@@ -35,6 +35,7 @@ async function api(path, data) {
   return result;
 }
 function renderMode() {
+  $('temperature-control').hidden = !config.aiEnabled || config.provider !== 'ollama';
   $('mode-label').textContent = config.aiEnabled ? (config.provider === 'ollama' ? 'PC内AI学習モード' : config.provider === 'gemini' ? 'Gemini学習モード' : 'OpenAI学習モード') : 'サンプルモード';
   $('mode-description').textContent = config.aiEnabled ? '条件に合わせた出題と、和訳へのフィードバック。' : '固定の例文で操作を体験。レベル設定はAI接続後に反映されます。';
   if (config.aiEnabled && config.provider === 'ollama') $('mode-description').textContent = 'OllamaでPC内のAIを使用。初回はモデルの読み込みに時間がかかります。';
@@ -62,6 +63,7 @@ async function generate() {
   } catch (error) { showError(error.name === 'TimeoutError' ? '応答に時間がかかっています。もう一度お試しください。' : error.message); }
   finally { const message = $('error').hidden ? '' : $('error').textContent; setBusy(false); if (message) showError(message); }
 }
+$('temperature').addEventListener('input', () => { $('temperature-value').value = Number($('temperature').value).toFixed(1); });
 $('settings-form').addEventListener('submit', event => { event.preventDefault(); generate(); });
 $('answer').addEventListener('input', () => { $('character-count').textContent = `${$('answer').value.length} / 2000`; $('result').hidden = true; });
 $('hint-button').addEventListener('click', () => { const show = $('hint').hidden; $('hint').hidden = !show; $('hint-button').setAttribute('aria-expanded', String(show)); $('hint-button').textContent = show ? 'ヒントを閉じる −' : 'ヒントを見る ＋'; });

@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { validSettings } from './public/shared.js';
+import { validSettings, DEFAULT_TEMPERATURE } from './public/shared.js';
 import { aiConfig, structuredAI, generationInstructions, gradingInstructions, questionSchema, gradeSchema, validQuestion, validGrade } from './ai.js';
 
 const root = new URL('./public/', import.meta.url);
@@ -105,8 +105,8 @@ export function createApp({ env = process.env, fetchImpl = fetch, now = Date.now
       active++;
       try {
         if (path === '/api/question') {
-          const settings = { topic: data.topic, vocabulary: data.vocabulary, syntax: data.syntax };
-          const q = await structuredAI({ env, fetchImpl, instructions: generationInstructions(settings), input: { nonce: randomBytes(8).toString('hex') }, schema: questionSchema, name: 'english_question' });
+          const settings = { topic: data.topic, vocabulary: data.vocabulary, syntax: data.syntax, temperature: data.temperature ?? DEFAULT_TEMPERATURE };
+          const q = await structuredAI({ env, fetchImpl, instructions: generationInstructions(settings), input: { nonce: randomBytes(8).toString('hex') }, schema: questionSchema, name: 'english_question', temperature: settings.temperature });
           if (!validQuestion(q)) throw fail(502, '出題内容を読み取れませんでした。再試行してください。');
           return send(200, { sentence: q.sentence, hint: q.hint, settings, token: seal({ kind: 'question', question: q }) });
         }

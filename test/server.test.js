@@ -202,3 +202,30 @@ test('Ollama permits only one concurrent inference and releases slot afterward',
   release(); assert.equal((await first).status, 200);
   assert.equal((await api.post('/api/question', settings)).status, 200);
 });
+
+test('selected Ollama generation temperature reaches model while grading stays at zero', async t => {
+  const requests = [];
+  const api = await setup(t, { env: { AI_PROVIDER: 'ollama' }, fetchImpl: async (url, options) => {
+    requests.push(JSON.parse(options.body)); return ollamaResponse(requests.length === 1 ? question : grade);
+  } });
+  const r = await api.post('/api/question', { ...settings, temperature: 1.2 }); assert.equal(r.status, 200);
+  const q = await r.json(); assert.equal(q.settings.temperature, 1.2); assert.equal(requests[0].options.temperature, 1.2);
+  const graded = await api.post('/api/grade', { token: q.token, answer: '家に帰る途中で鳥を見ました。', temperature: 1.5 });
+  assert.equal(graded.status, 200); assert.equal(requests[1].options.temperature, 0);
+});
+test('generation accepts zero and upper limit, defaults old requests to 0.7', async t => {
+  const requests = [];
+  const api = await setup(t, { env: { AI_PROVIDER: 'ollama' }, fetchImpl: async (url, options) => { requests.push(JSON.parse(options.body)); return ollamaResponse(question); } });
+  for (const temperature of [0, 1.5, undefined]) {
+    const r = await api.post('/api/question', { ...settings, temperature }); assert.equal(r.status, 200);
+    assert.equal(requests.at(-1).options.temperature, temperature ?? 0.7);
+  }
+});
+test('invalid temperatures are rejected before contacting the model', async t => {
+  let calls = 0;
+  const api = await setup(t, { env: { AI_PROVIDER: 'ollama' }, fetchImpl: async () => { calls++; return ollamaResponse(question); } });
+  for (const temperature of [-0.1, 1.6, null, '1.2', {}, []]) assert.equal((await api.post('/api/question', { ...settings, temperature })).status, 400);
+  assert.equal(calls, 0);
+  assert.equal(validSettings({ ...settings, temperature: NaN }), false);
+  assert.equal(validSettings({ ...settings, temperature: Infinity }), false);
+});

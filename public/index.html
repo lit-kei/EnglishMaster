@@ -17,6 +17,12 @@
         <fieldset><legend>学ぶ分野</legend><div class="topic-grid" id="topics"></div></fieldset>
         <label class="select-label" for="vocabulary">単語のレベル <span>VOCABULARY</span></label><select id="vocabulary" name="vocabulary"><option value="basic">中学レベル</option><option value="standard" selected>高校基礎</option><option value="advanced">大学受験</option></select>
         <label class="select-label" for="syntax">構文のレベル <span>STRUCTURE</span></label><select id="syntax" name="syntax"><option value="basic">基礎 — まずは短い一文から</option><option value="standard" selected>標準 — 少し長い文に挑戦</option><option value="advanced">発展 — 複雑な構文を読み解く</option></select>
+        <div id="temperature-control" class="temperature-control" hidden>
+          <label class="select-label" for="temperature">出題の温度 <output id="temperature-value" for="temperature">0.7</output></label>
+          <input id="temperature" name="temperature" type="range" min="0" max="1.5" step="0.1" value="0.7" aria-describedby="temperature-help">
+          <div class="temperature-scale" aria-hidden="true"><span>0：安定</span><span>1.5：多様</span></div>
+          <p id="temperature-help" class="muted small">高くすると表現が変わりやすくなります。出題だけに適用し、採点の温度は0に固定します。</p>
+        </div>
         <button class="primary generate" type="submit" id="generate-button" disabled><span>英文を生成する</span><span aria-hidden="true">↗</span></button>
       </form><div class="mode-box"><span class="mode-dot"></span><div><strong id="mode-label">接続を確認中…</strong><p id="mode-description">学習の準備をしています。</p><button class="text-button" id="login-button" type="button" hidden>利用パスワードを入力 →</button></div></div>
     </aside>
