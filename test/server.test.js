@@ -8,7 +8,7 @@ const question = { sentence: 'Walking home, I saw a bird.', translation: '家に
 const grade = { score: 95, feedback: '意味を正しく捉えています。', strengths: ['分詞構文を適切に訳せています。'], improvements: [] };
 const aiResponse = value => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(value) }] }] }), { status: 200 });
 async function setup(t, { env = {}, fetchImpl = async () => aiResponse(question), now } = {}) {
-  const app = createApp({ env: { OPENAI_API_KEY: 'test-key-not-real', ...env }, fetchImpl, now });
+  const app = createApp({ env: { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'test-key-not-real', ...env }, fetchImpl, now });
   app.listen(0, '127.0.0.1'); await once(app, 'listening');
   t.after(() => { app.closeAllConnections(); app.close(); });
   const base = `http://127.0.0.1:${app.address().port}`;
@@ -94,4 +94,52 @@ test('payload and content-type limits', async t => {
   const api = await setup(t);
   assert.equal((await api.post('/api/question', settings, { 'Content-Type': 'text/plain' })).status, 415);
   assert.equal((await api.post('/api/question', { text: 'a'.repeat(33000) })).status, 413);
+});
+
+const geminiResponse = value => new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ thought: true, text: 'private thinking' }, { text: JSON.stringify(value) }] } }] }));
+test('Gemini generates and grades using JSON schema, keeps key in header, never falls back to OpenAI', async t => {
+  const requests = [];
+  const api = await setup(t, { env: { AI_PROVIDER: '', GEMINI_API_KEY: 'gemini-test-key' }, fetchImpl: async (url, options) => {
+    requests.push({ url, ...options, body: JSON.parse(options.body) });
+    return geminiResponse(requests.length === 1 ? question : grade);
+  } });
+  const config = await (await api.get('/api/config')).json();
+  assert.equal(config.provider, 'gemini'); assert.equal(config.aiEnabled, true);
+  assert.ok(!JSON.stringify(config).includes('gemini-test-key'));
+  const q = await (await api.post('/api/question', settings)).json(); assert.equal(q.sentence, question.sentence); assert.equal(q.translation, undefined);
+  assert.match(requests[0].url, /models\/gemini-3.1-flash-lite:generateContent$/);
+  assert.ok(!requests[0].url.includes('gemini-test-key'));
+  assert.equal(requests[0].headers['x-goog-api-key'], 'gemini-test-key'); assert.equal(requests[0].headers.Authorization, undefined);
+  assert.match(requests[0].body.systemInstruction.parts[0].text, /単語: 中学レベル。構文: 発展/);
+  assert.equal(requests[0].body.generationConfig.responseMimeType, 'application/json');
+  assert.equal(requests[0].body.generationConfig.responseJsonSchema.additionalProperties, false);
+  const graded = await api.post('/api/grade', { token: q.token, answer: '家への道で鳥を見ました。' });
+  assert.equal(graded.status, 200); assert.equal((await graded.json()).score, 95);
+  const input = JSON.parse(requests[1].body.contents[0].parts[0].text);
+  assert.equal(input.sentence, question.sentence); assert.equal(input.referenceTranslation, question.translation);
+});
+test('default Gemini requires its own key even when an old OpenAI key exists', async t => {
+  let calls = 0;
+  const api = await setup(t, { env: { AI_PROVIDER: '' }, fetchImpl: async () => { calls++; return aiResponse(question); } });
+  assert.equal((await (await api.get('/api/config')).json()).aiEnabled, false);
+  assert.equal((await api.post('/api/question', settings)).status, 503); assert.equal(calls, 0);
+});
+test('Gemini errors, safety blocks, empty responses, malformed JSON and truncation are rejected safely', async t => {
+  const responses = [() => new Response('private provider detail', { status: 429 }), () => new Response('private provider detail', { status: 403 }),
+    () => new Response(JSON.stringify({ promptFeedback: { blockReason: 'SAFETY' } })),
+    () => new Response(JSON.stringify({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{' }] } }] })),
+    () => new Response(JSON.stringify({ candidates: [] })),
+    () => new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'invalid-json' }] } }] }))];
+  for (const response of responses) {
+    const api = await setup(t, { env: { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'gemini-test-key' }, fetchImpl: async () => response() });
+    const r = await api.post('/api/question', settings); assert.equal(r.status, 502);
+    const data = await r.text(); assert.ok(!data.includes('private provider detail')); assert.ok(!data.includes('gemini-test-key'));
+  }
+});
+test('Gemini custom model is used and invalid provider fails configuration', async t => {
+  const api = await setup(t, { env: { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'gemini-test-key', GEMINI_MODEL: 'custom-model' }, fetchImpl: async url => {
+    assert.match(url, /models\/custom-model:generateContent$/); return geminiResponse(question);
+  } });
+  assert.equal((await api.post('/api/question', settings)).status, 200);
+  assert.throws(() => createApp({ env: { AI_PROVIDER: 'typo' } }), /AI_PROVIDER/);
 });

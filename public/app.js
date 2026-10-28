@@ -35,7 +35,7 @@ async function api(path, data) {
   return result;
 }
 function renderMode() {
-  $('mode-label').textContent = config.aiEnabled ? 'AI学習モード' : 'サンプルモード';
+  $('mode-label').textContent = config.aiEnabled ? (config.provider === 'gemini' ? 'Gemini学習モード' : 'OpenAI学習モード') : 'サンプルモード';
   $('mode-description').textContent = config.aiEnabled ? '条件に合わせた出題と、和訳へのフィードバック。' : '固定の例文で操作を体験。レベル設定はAI接続後に反映されます。';
   if (connectionFailed) $('mode-description').textContent = 'サーバーに接続できません。固定サンプルを表示します（AI生成・採点なし）。';
   $('login-button').hidden = !config.aiEnabled || config.authenticated;

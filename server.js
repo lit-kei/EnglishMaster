@@ -3,12 +3,13 @@ import { readFile } from 'node:fs/promises';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { validSettings } from './public/shared.js';
-import { structuredAI, generationInstructions, gradingInstructions, questionSchema, gradeSchema, validQuestion, validGrade } from './ai.js';
+import { aiConfig, structuredAI, generationInstructions, gradingInstructions, questionSchema, gradeSchema, validQuestion, validGrade } from './ai.js';
 
 const root = new URL('./public/', import.meta.url);
 const staticFiles = { '/': ['index.html', 'text/html'], '/index.html': ['index.html', 'text/html'], '/style.css': ['style.css', 'text/css'], '/app.js': ['app.js', 'text/javascript'], '/shared.js': ['shared.js', 'text/javascript'], '/demo.js': ['demo.js', 'text/javascript'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'] };
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export function createApp({ env = process.env, fetchImpl = fetch, now = Date.now } = {}) {
+  const ai = aiConfig(env);
   const key = env.TOKEN_SECRET ? createHash('sha256').update(env.TOKEN_SECRET).digest() : randomBytes(32);
   const limits = new Map();
   let active = 0;
@@ -78,7 +79,7 @@ export function createApp({ env = process.env, fetchImpl = fetch, now = Date.now
       if (path === '/api/config' && req.method === 'GET') {
         let authenticated = true;
         try { authenticate(req); } catch { authenticated = false; }
-        return send(200, { aiEnabled: Boolean(env.OPENAI_API_KEY), passwordRequired: Boolean(env.APP_PASSWORD), authenticated });
+        return send(200, { aiEnabled: Boolean(ai.apiKey), provider: ai.provider, passwordRequired: Boolean(env.APP_PASSWORD), authenticated });
       }
       if (!['/api/session', '/api/question', '/api/grade'].includes(path)) return send(404, { error: 'ページが見つかりません。' });
       if (req.method !== 'POST') return send(405, { error: 'POSTで送信してください。' }, { Allow: 'POST' });
@@ -93,7 +94,7 @@ export function createApp({ env = process.env, fetchImpl = fetch, now = Date.now
         return send(200, { ok: true }, { 'Set-Cookie': `em_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure}` });
       }
       authenticate(req);
-      if (!env.OPENAI_API_KEY) throw fail(503, 'AI接続は未設定です。サンプルモードをご利用ください。');
+      if (!ai.apiKey) throw fail(503, 'AI接続は未設定です。サンプルモードをご利用ください。');
       if (active >= 3) throw fail(429, 'AIが処理中です。少し待って再試行してください。');
       let question;
       if (path === '/api/question' && !validSettings(data)) throw fail(400, '出題条件を選び直してください。');
@@ -123,7 +124,7 @@ export function createApp({ env = process.env, fetchImpl = fetch, now = Date.now
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const host = process.env.HOST || '127.0.0.1';
-  if (process.env.OPENAI_API_KEY && !['127.0.0.1', 'localhost', '::1'].includes(host) && !process.env.APP_PASSWORD) {
+  if (aiConfig(process.env).apiKey && !['127.0.0.1', 'localhost', '::1'].includes(host) && !process.env.APP_PASSWORD) {
     throw new Error('公開するAIサーバーには APP_PASSWORD を設定してください。');
   }
   const port = Number(process.env.PORT || 3000);

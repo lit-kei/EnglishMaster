@@ -11,24 +11,47 @@ export function validQuestion(q) {
 export function validGrade(g) {
   return g && Number.isInteger(g.score) && g.score >= 0 && g.score <= 100 && typeof g.feedback === 'string' && g.feedback.length <= 3000 && ['strengths', 'improvements'].every(k => Array.isArray(g[k]) && g[k].length <= 8 && g[k].every(s => typeof s === 'string' && s.length <= 1500));
 }
+export function aiConfig(env) {
+  const provider = (env.AI_PROVIDER || 'gemini').trim().toLowerCase();
+  if (!['gemini', 'openai'].includes(provider)) throw new Error('AI_PROVIDER は gemini または openai を指定してください。');
+  return { provider, apiKey: (provider === 'gemini' ? env.GEMINI_API_KEY : env.OPENAI_API_KEY)?.trim(),
+    model: (provider === 'gemini' ? env.GEMINI_MODEL : env.OPENAI_MODEL)?.trim() || (provider === 'gemini' ? 'gemini-3.1-flash-lite' : 'gpt-4.1-mini') };
+}
 export async function structuredAI({ env, fetchImpl, instructions, input, schema, name }) {
-  const response = await fetchImpl('https://api.openai.com/v1/responses', {
+  const { provider, apiKey, model } = aiConfig(env);
+  const gemini = provider === 'gemini';
+  const url = gemini ? `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent` : 'https://api.openai.com/v1/responses';
+  const payload = gemini ? {
+    systemInstruction: { parts: [{ text: instructions }] },
+    contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
+    generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 4096 },
+  } : { model, store: false, instructions, input: JSON.stringify(input), max_output_tokens: 2200,
+    text: { format: { type: 'json_schema', name, strict: true, schema } } };
+  const response = await fetchImpl(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(gemini ? { 'x-goog-api-key': apiKey } : { Authorization: `Bearer ${apiKey}` }) },
     signal: AbortSignal.timeout(45_000),
-    body: JSON.stringify({ model: env.OPENAI_MODEL || 'gpt-4.1-mini', store: false,
-      instructions, input: JSON.stringify(input), max_output_tokens: 2200,
-      text: { format: { type: 'json_schema', name, strict: true, schema } } }),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     const status = response.status;
-    const error = new Error(status === 429 ? 'AIが混み合っているか、APIの利用上限に達しています。時間をおいて再試行してください。' : status === 401 || status === 403 ? 'AI接続設定を確認してください（APIキー・モデルの利用権限）。' : 'AIとの通信に失敗しました。もう一度お試しください。');
-    error.status = 502;
-    throw error;
+    const message = status === 429 ? 'AIの利用上限に達したか、混み合っています。無料枠の制限を確認し、時間をおいて再試行してください。'
+      : [400, 401, 403, 404].includes(status) ? 'AI接続設定を確認してください（APIキー・モデル名・利用可能な地域や権限）。'
+      : 'AIとの通信に失敗しました。もう一度お試しください。';
+    throw Object.assign(new Error(message), { status: 502 });
   }
   const result = await response.json();
-  if (result.status !== 'completed') throw new Error('AIの回答が完了しませんでした。もう一度お試しください。');
-  const output = result.output?.flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('');
+  let output;
+  if (gemini) {
+    const candidate = result.candidates?.[0];
+    if (result.promptFeedback?.blockReason || candidate?.finishReason !== 'STOP') {
+      throw Object.assign(new Error('AIの回答が完了しなかったか、生成が制限されました。もう一度お試しください。'), { status: 502 });
+    }
+    output = candidate.content?.parts?.filter(part => !part.thought && typeof part.text === 'string').map(part => part.text).join('');
+  } else {
+    if (result.status !== 'completed') throw new Error('AIの回答が完了しませんでした。もう一度お試しください。');
+    output = result.output?.flatMap(item => item.content || []).filter(item => item.type === 'output_text').map(item => item.text).join('');
+  }
   try { return JSON.parse(output); }
   catch { throw new Error('AIの回答を読み取れませんでした。もう一度お試しください。'); }
 }
