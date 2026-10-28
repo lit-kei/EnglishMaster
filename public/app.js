@@ -26,7 +26,7 @@ function setBusy(value, message = '') {
   $('error').hidden = true;
 }
 async function api(path, data) {
-  const response = await fetch(`./api/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), signal: AbortSignal.timeout(55_000) });
+  const response = await fetch(`./api/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), signal: AbortSignal.timeout(config.requestTimeoutMs || 55_000) });
   const result = await response.json();
   if (!response.ok) {
     if (response.status === 401) { config.authenticated = false; renderMode(); $('login-dialog').showModal(); }
@@ -35,8 +35,9 @@ async function api(path, data) {
   return result;
 }
 function renderMode() {
-  $('mode-label').textContent = config.aiEnabled ? (config.provider === 'gemini' ? 'Gemini学習モード' : 'OpenAI学習モード') : 'サンプルモード';
+  $('mode-label').textContent = config.aiEnabled ? (config.provider === 'ollama' ? 'PC内AI学習モード' : config.provider === 'gemini' ? 'Gemini学習モード' : 'OpenAI学習モード') : 'サンプルモード';
   $('mode-description').textContent = config.aiEnabled ? '条件に合わせた出題と、和訳へのフィードバック。' : '固定の例文で操作を体験。レベル設定はAI接続後に反映されます。';
+  if (config.aiEnabled && config.provider === 'ollama') $('mode-description').textContent = 'OllamaでPC内のAIを使用。初回はモデルの読み込みに時間がかかります。';
   if (connectionFailed) $('mode-description').textContent = 'サーバーに接続できません。固定サンプルを表示します（AI生成・採点なし）。';
   $('login-button').hidden = !config.aiEnabled || config.authenticated;
   $('grade-button').textContent = question?.demo ? 'サンプルの訳例・解説を見る →' : 'AIに採点してもらう →';

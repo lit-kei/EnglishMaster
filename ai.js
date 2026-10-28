@@ -13,36 +13,64 @@ export function validGrade(g) {
 }
 export function aiConfig(env) {
   const provider = (env.AI_PROVIDER || 'gemini').trim().toLowerCase();
-  if (!['gemini', 'openai'].includes(provider)) throw new Error('AI_PROVIDER は gemini または openai を指定してください。');
-  return { provider, apiKey: (provider === 'gemini' ? env.GEMINI_API_KEY : env.OPENAI_API_KEY)?.trim(),
+  if (!['ollama', 'gemini', 'openai'].includes(provider)) throw new Error('AI_PROVIDER は ollama、gemini、openai のいずれかを指定してください。');
+  if (provider === 'ollama') {
+    const url = new URL(env.OLLAMA_BASE_URL?.trim() || 'http://127.0.0.1:11434');
+    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+      throw new Error('OLLAMA_BASE_URL はPC内のHTTPアドレス（例：http://127.0.0.1:11434）を指定してください。');
+    }
+    const model = env.OLLAMA_MODEL?.trim() || 'qwen3:4b';
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._/:\-]*$/.test(model) || /:cloud$/i.test(model)) throw new Error('OLLAMA_MODEL はダウンロードしたローカルモデル名を指定してください。');
+    return { provider, model, enabled: true, baseURL: url.origin, timeoutMs: 180_000 };
+  }
+  const apiKey = (provider === 'gemini' ? env.GEMINI_API_KEY : env.OPENAI_API_KEY)?.trim();
+  return { provider, apiKey, enabled: Boolean(apiKey), timeoutMs: 45_000,
     model: (provider === 'gemini' ? env.GEMINI_MODEL : env.OPENAI_MODEL)?.trim() || (provider === 'gemini' ? 'gemini-3.1-flash-lite' : 'gpt-4.1-mini') };
 }
 export async function structuredAI({ env, fetchImpl, instructions, input, schema, name }) {
-  const { provider, apiKey, model } = aiConfig(env);
+  const { provider, apiKey, model, baseURL, timeoutMs } = aiConfig(env);
   const gemini = provider === 'gemini';
-  const url = gemini ? `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent` : 'https://api.openai.com/v1/responses';
-  const payload = gemini ? {
+  const local = provider === 'ollama';
+  const url = local ? `${baseURL}/api/chat` : gemini ? `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent` : 'https://api.openai.com/v1/responses';
+  const payload = local ? {
+    model, messages: [{ role: 'system', content: `${instructions}\n指定されたJSONスキーマに沿うJSONだけを出力してください。` }, { role: 'user', content: JSON.stringify(input) }],
+    stream: false, think: false, format: schema, keep_alive: '5m',
+    options: { num_ctx: 4096, num_predict: 2200, temperature: name === 'english_grade' ? 0 : 0.7 },
+  } : gemini ? {
     systemInstruction: { parts: [{ text: instructions }] },
     contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
     generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, maxOutputTokens: 4096 },
   } : { model, store: false, instructions, input: JSON.stringify(input), max_output_tokens: 2200,
     text: { format: { type: 'json_schema', name, strict: true, schema } } };
-  const response = await fetchImpl(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(gemini ? { 'x-goog-api-key': apiKey } : { Authorization: `Bearer ${apiKey}` }) },
-    signal: AbortSignal.timeout(45_000),
-    body: JSON.stringify(payload),
-  });
+  let response;
+  try {
+    response = await fetchImpl(url, {
+      method: 'POST', redirect: 'error',
+      headers: { 'Content-Type': 'application/json', ...(local ? {} : gemini ? { 'x-goog-api-key': apiKey } : { Authorization: `Bearer ${apiKey}` }) },
+      signal: AbortSignal.timeout(timeoutMs), body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (local) throw Object.assign(new Error(error.name === 'TimeoutError'
+      ? 'PC内のAIがタイムアウトしました。Ollamaの起動状態を確認し、ほかの重いアプリを閉じて再試行してください。'
+      : 'Ollamaに接続できません。Ollamaアプリを起動し、もう一度お試しください。'), { status: 502 });
+    throw error;
+  }
   if (!response.ok) {
     const status = response.status;
-    const message = status === 429 ? 'AIの利用上限に達したか、混み合っています。無料枠の制限を確認し、時間をおいて再試行してください。'
+    const message = local ? (status === 404 ? `モデルが見つかりません。PowerShellで ollama pull ${model} を実行してください。`
+      : status === 400 ? 'Ollamaのモデル設定を確認し、最新版のOllamaで再試行してください。'
+      : 'Ollamaの処理に失敗しました。メモリー不足がないか確認し、再試行してください。')
+      : status === 429 ? 'AIの利用上限に達したか、混み合っています。無料枠の制限を確認し、時間をおいて再試行してください。'
       : [400, 401, 403, 404].includes(status) ? 'AI接続設定を確認してください（APIキー・モデル名・利用可能な地域や権限）。'
       : 'AIとの通信に失敗しました。もう一度お試しください。';
     throw Object.assign(new Error(message), { status: 502 });
   }
   const result = await response.json();
   let output;
-  if (gemini) {
+  if (local) {
+    if (result.done !== true || result.done_reason !== 'stop') throw Object.assign(new Error('PC内のAIの回答が途中で終了しました。再試行してください。'), { status: 502 });
+    output = result.message?.content;
+  } else if (gemini) {
     const candidate = result.candidates?.[0];
     if (result.promptFeedback?.blockReason || candidate?.finishReason !== 'STOP') {
       throw Object.assign(new Error('AIの回答が完了しなかったか、生成が制限されました。もう一度お試しください。'), { status: 502 });

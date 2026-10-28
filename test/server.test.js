@@ -143,3 +143,62 @@ test('Gemini custom model is used and invalid provider fails configuration', asy
   assert.equal((await api.post('/api/question', settings)).status, 200);
   assert.throws(() => createApp({ env: { AI_PROVIDER: 'typo' } }), /AI_PROVIDER/);
 });
+
+const ollamaResponse = value => new Response(JSON.stringify({ done: true, done_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(value) } }));
+test('Ollama generation and grading stay on localhost with no API keys', async t => {
+  const requests = [];
+  const api = await setup(t, { env: { AI_PROVIDER: 'ollama', GEMINI_API_KEY: 'not-for-local-use' }, fetchImpl: async (url, options) => {
+    requests.push({ url, ...options, body: JSON.parse(options.body) });
+    return ollamaResponse(requests.length === 1 ? question : grade);
+  } });
+  const config = await (await api.get('/api/config')).json();
+  assert.equal(config.provider, 'ollama'); assert.equal(config.aiEnabled, true); assert.equal(config.requestTimeoutMs, 190000);
+  const q = await (await api.post('/api/question', settings)).json(); assert.equal(q.sentence, question.sentence); assert.equal(q.translation, undefined);
+  assert.equal(requests[0].url, 'http://127.0.0.1:11434/api/chat');
+  assert.equal(requests[0].redirect, 'error'); assert.deepEqual(requests[0].headers, { 'Content-Type': 'application/json' });
+  const payload = requests[0].body;
+  assert.equal(payload.model, 'qwen3:4b'); assert.equal(payload.stream, false); assert.equal(payload.think, false);
+  assert.equal(payload.options.num_ctx, 4096); assert.equal(payload.format.type, 'object');
+  assert.match(payload.messages[0].content, /単語: 中学レベル。構文: 発展/);
+  const r = await api.post('/api/grade', { token: q.token, answer: '家に帰る途中で鳥を見ました。', sentence: 'tampered' });
+  assert.equal(r.status, 200); assert.equal((await r.json()).score, 95);
+  assert.equal(requests[1].body.options.temperature, 0);
+  assert.equal(JSON.parse(requests[1].body.messages[1].content).sentence, question.sentence);
+  assert.ok(!JSON.stringify(requests).includes('test-key-not-real')); assert.ok(!JSON.stringify(requests).includes('not-for-local-use'));
+});
+test('Ollama refuses external endpoints, credentials, paths and cloud-tagged models', () => {
+  for (const address of ['https://127.0.0.1:11434', 'http://evil.example', 'http://127.0.0.1.evil.example', 'http://user:pass@localhost:11434', 'http://127.0.0.1:11434/path', 'http://localhost:11434?url=external', 'http://localhost:11434#external']) {
+    assert.throws(() => createApp({ env: { AI_PROVIDER: 'ollama', OLLAMA_BASE_URL: address } }), /OLLAMA_BASE_URL/);
+  }
+  assert.throws(() => createApp({ env: { AI_PROVIDER: 'ollama', OLLAMA_MODEL: 'qwen3:cloud' } }), /OLLAMA_MODEL/);
+});
+test('Ollama missing-model and connection errors give actionable messages without cloud fallback', async t => {
+  for (const [fetchImpl, expected] of [
+    [async () => new Response('private detail', { status: 404 }), /ollama pull qwen3:4b/],
+    [async () => { throw new TypeError('private network detail'); }, /Ollamaアプリを起動/],
+    [async () => { throw new DOMException('private detail', 'TimeoutError'); }, /タイムアウト/],
+    [async () => new Response('private detail', { status: 500 }), /メモリー不足/],
+  ]) {
+    let calls = 0;
+    const api = await setup(t, { env: { AI_PROVIDER: 'ollama' }, fetchImpl: async (...args) => { calls++; return fetchImpl(...args); } });
+    const r = await api.post('/api/question', settings); assert.equal(r.status, 502);
+    const result = await r.text(); assert.match(result, expected); assert.ok(!result.includes('private')); assert.equal(calls, 1);
+  }
+});
+test('Ollama rejects truncated, invalid and malformed output', async t => {
+  for (const result of [{ done: false }, { done: true, done_reason: 'length', message: { content: '{}' } }, { done: true, done_reason: 'stop', message: { content: 'invalid JSON' } }]) {
+    const api = await setup(t, { env: { AI_PROVIDER: 'ollama' }, fetchImpl: async () => new Response(JSON.stringify(result)) });
+    assert.equal((await api.post('/api/question', settings)).status, 502);
+  }
+});
+test('Ollama permits only one concurrent inference and releases slot afterward', async t => {
+  let release; let started;
+  const ready = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  t.after(() => release());
+  const api = await setup(t, { env: { AI_PROVIDER: 'ollama' }, fetchImpl: async () => { started(); await gate; return ollamaResponse(question); } });
+  const first = api.post('/api/question', settings); await ready;
+  assert.equal((await api.post('/api/question', settings)).status, 429);
+  release(); assert.equal((await first).status, 200);
+  assert.equal((await api.post('/api/question', settings)).status, 200);
+});

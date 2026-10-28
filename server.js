@@ -79,7 +79,7 @@ export function createApp({ env = process.env, fetchImpl = fetch, now = Date.now
       if (path === '/api/config' && req.method === 'GET') {
         let authenticated = true;
         try { authenticate(req); } catch { authenticated = false; }
-        return send(200, { aiEnabled: Boolean(ai.apiKey), provider: ai.provider, passwordRequired: Boolean(env.APP_PASSWORD), authenticated });
+        return send(200, { aiEnabled: ai.enabled, provider: ai.provider, requestTimeoutMs: ai.timeoutMs + 10_000, passwordRequired: Boolean(env.APP_PASSWORD), authenticated });
       }
       if (!['/api/session', '/api/question', '/api/grade'].includes(path)) return send(404, { error: 'ページが見つかりません。' });
       if (req.method !== 'POST') return send(405, { error: 'POSTで送信してください。' }, { Allow: 'POST' });
@@ -94,8 +94,8 @@ export function createApp({ env = process.env, fetchImpl = fetch, now = Date.now
         return send(200, { ok: true }, { 'Set-Cookie': `em_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${secure}` });
       }
       authenticate(req);
-      if (!ai.apiKey) throw fail(503, 'AI接続は未設定です。サンプルモードをご利用ください。');
-      if (active >= 3) throw fail(429, 'AIが処理中です。少し待って再試行してください。');
+      if (!ai.enabled) throw fail(503, 'AI接続は未設定です。サンプルモードをご利用ください。');
+      if (active >= (ai.provider === 'ollama' ? 1 : 3)) throw fail(429, 'AIが処理中です。少し待って再試行してください。');
       let question;
       if (path === '/api/question' && !validSettings(data)) throw fail(400, '出題条件を選び直してください。');
       if (path === '/api/grade') {
@@ -124,7 +124,7 @@ export function createApp({ env = process.env, fetchImpl = fetch, now = Date.now
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const host = process.env.HOST || '127.0.0.1';
-  if (aiConfig(process.env).apiKey && !['127.0.0.1', 'localhost', '::1'].includes(host) && !process.env.APP_PASSWORD) {
+  if (aiConfig(process.env).enabled && !['127.0.0.1', 'localhost', '::1'].includes(host) && !process.env.APP_PASSWORD) {
     throw new Error('公開するAIサーバーには APP_PASSWORD を設定してください。');
   }
   const port = Number(process.env.PORT || 3000);
